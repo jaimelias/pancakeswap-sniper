@@ -1,5 +1,5 @@
-import {privateKey} from './secrets.js';
-import {webSocketEndpoint, whiteListSheet, addresses} from './config.js';
+import {privateKey, tsvList, webSocketEndpoint} from './secrets.js';
+import {addresses} from './config.js';
 import {listedText, getConsoleLog, swapUrl} from './utilities.js';
 import { ethers } from 'ethers';
 import fetch from 'node-fetch';
@@ -13,7 +13,7 @@ const KEEP_ALIVE_CHECK_INTERVAL = 7500;
 
 const getWhiteList = async () => {
 	
-	const response = await fetch(whiteListSheet);
+	const response = await fetch(tsvList);
 	
 	if(response.ok)
 	{
