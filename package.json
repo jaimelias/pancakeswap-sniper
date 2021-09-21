@@ -1,0 +1,25 @@
+{
+  "name": "Pancakeswap Sniper",
+  "version": "1.0.0",
+  "main": "bot.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "type": "module",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@ethersproject/providers": "^5.4.5",
+    "@pancakeswap-libs/sdk": "^1.0.1",
+    "ethers": "^5.0.32",
+    "node-fetch": "^3.0.0",
+    "node-notifier": "^10.0.0",
+    "open": "^8.2.1",
+    "web3": "^1.5.2"
+  },
+  "description": ""
+}
