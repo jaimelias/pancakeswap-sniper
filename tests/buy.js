@@ -82,8 +82,6 @@ const startConnection = async () => {
 	const receipt = await tx.wait();
 
 	console.log(`Tx was mined in block: ${receipt.blockNumber}`);*/
-
-	
 };
 
 await startConnection();
