@@ -54,9 +54,6 @@ const startConnection = async () => {
 	const minutes = 5;
 	const deadline = Math.floor(Date.now() / 1000) + 60 * minutes;
 
-
-
-
 	// Allow Pancakeswap
 
 	let contract = new ethers.Contract(
