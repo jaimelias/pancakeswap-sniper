@@ -1,4 +1,4 @@
-import {privateKey, publicKey} from './secrets.js';
+import {privateKey, publicKey, webSocketEndpoint} from './secrets.js';
 import {addresses} from './config.js';
 import { ethers } from 'ethers';
 import web3 from 'web3';
@@ -9,12 +9,15 @@ const SELL_AMOUNT = 1;
 let SELL_TOKEN = addresses.BUSD;
 let BUY_TOKEN = '0x6B9F6f911384886b2e622e406327085238F8A3C5';
 const SLIPPAGE_TOLERANCE = 0.5; //RANGE 0.01% - 49%
-const DEADLINE_MINUTES = 5;
+const DEADLINE_MINUTES = 5; // >= 1
 const APPROVE_MAX_TRANSACTIONS = SELL_AMOUNT * 1; //any number larger than SELL_AMOUNT
 
+const webSocketProvider = new ethers.providers.WebSocketProvider(webSocketEndpoint);
 const rpcProvider = new JsonRpcProvider('https://bsc-dataseed1.binance.org/');
 const wallet = new ethers.Wallet(privateKey, rpcProvider);
+const webSocketSigner = wallet.connect(webSocketProvider);
 const rpcSigner = wallet.connect(rpcProvider);
+
 
 const startConnection = async () => {
 	
@@ -69,6 +72,8 @@ const startConnection = async () => {
 	
 	const deadline = Math.floor(Date.now() / 1000) + 60 * DEADLINE_MINUTES;	
 	
+	/*
+	
 	// Execute transaction
 	const tx = await router.swapExactTokensForTokens(
 		ethers.utils.parseUnits(SELL_AMOUNT.toString(), 18),
@@ -88,6 +93,8 @@ const startConnection = async () => {
 
 	console.log(receipt);
 	//console.log(`Tx was mined in block: ${receipt.blockNumber}`);
+	
+	*/
 };
 
 startConnection();
