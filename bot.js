@@ -7,7 +7,6 @@ import open from 'open';
 import notifier from 'node-notifier';
 
 const webSocketProvider = new ethers.providers.WebSocketProvider(webSocketEndpoint);
-
 const EXPECTED_PONG_BACK = 15000;
 const KEEP_ALIVE_CHECK_INTERVAL = 7500;
 
@@ -39,9 +38,11 @@ const startConnection = async () => {
 	const webSocketSigner = wallet.connect(webSocketProvider);
 	let pingTimeout = null;
 	let keepAliveInterval = null;
-	console.log(whiteList);
+	
 		
 	webSocketProvider._websocket.on('open', () => {
+		
+		console.log(whiteList);
 		
 		//check if websocket is alive
 		keepAliveInterval = setInterval(() => {
@@ -84,6 +85,12 @@ const startConnection = async () => {
 			if(typeof tokenIn === 'undefined') {
 				return;
 			}	
+			
+			notifier.notify({
+				title: 'Token Listed',
+				message: tokenOut,
+				open: `https://bscscan.com/token/${tokenOut}`
+			});			
 
 			if(whiteList.includes(tokenOut))
 			{
@@ -94,7 +101,7 @@ const startConnection = async () => {
 				await open(tradeUrl);
 				
 				notifier.notify({
-					title: 'PancakeSwap Sniper',
+					title: 'Transction in Progress',
 					message: tokenOut,
 					open: tradeUrl
 				});

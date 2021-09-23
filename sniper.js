@@ -1,7 +1,6 @@
 import {privateKey, publicKey, webSocketEndpoint} from './secrets.js';
 import {addresses} from './config.js';
 import { ethers } from 'ethers';
-import web3 from 'web3';
 import {JsonRpcProvider} from '@ethersproject/providers';
 
 
@@ -27,7 +26,6 @@ const startConnection = async () => {
 	const factory = new ethers.Contract(
 		addresses.FACTORY,
 		[
-			'event PairCreated(address indexed token0, address indexed token1, address pair, uint)',
 			'function getPair(address tokenA, address tokenB) external view returns (address pair)'
 		],
 		rpcSigner
@@ -48,7 +46,7 @@ const startConnection = async () => {
 	
 	const amountOutMin = amountsOut[1];
 	
-	console.log({amountOutMin: web3.utils.fromWei(amountOutMin.toString())});
+	console.log({amountOutMin: ethers.utils.formatUnits(amountOutMin.toString(), 'ether')});
 	
 	let contract = new ethers.Contract(
 		SELL_TOKEN, 
