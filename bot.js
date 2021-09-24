@@ -6,6 +6,7 @@ import {JsonRpcProvider} from '@ethersproject/providers';
 import open from 'open';
 import notifier from 'node-notifier';
 
+const IS_PRODUCTION = true;
 const SELL_AMOUNT = 1;
 let SELL_TOKEN = addresses.BUSD;
 const SLIPPAGE_TOLERANCE = 0.5; //RANGE 0.01% - 49%
@@ -58,11 +59,14 @@ const startConnection = async () => {
 		rpcSigner
 	);
 	
-	await rpcSellContract.approve(
-		addresses.ROUTER, 
-		ethers.utils.parseUnits(APPROVE_MAX_TRANSACTIONS.toString(), 18), 
-		{gasLimit: 100000, gasPrice: 5e9}
-	);
+	if(IS_PRODUCTION)
+	{
+		await rpcSellContract.approve(
+			addresses.ROUTER, 
+			ethers.utils.parseUnits(APPROVE_MAX_TRANSACTIONS.toString(), 18), 
+			{gasLimit: 100000, gasPrice: 5e9}
+		);		
+	}
 	
 	webSocketProvider._websocket.on('open', () => {
 		
@@ -149,6 +153,11 @@ const startConnection = async () => {
 				message: tokenOut,
 				open: `https://bscscan.com/token/${tokenOut}`
 			});	
+
+			if(!IS_PRODUCTION)
+			{
+				return;
+			}
 
 			const deadline = Math.floor(Date.now() / 1000) + 60 * DEADLINE_MINUTES;
 			
