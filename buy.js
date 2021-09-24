@@ -7,7 +7,7 @@ import notifier from 'node-notifier';
 
 const SELL_AMOUNT = 1;
 let SELL_TOKEN = addresses.BUSD;
-let BUY_TOKEN = '0x9fd87aefe02441b123c3c32466cd9db4c578618f';
+let BUY_TOKEN = '0xac83271abb4ec95386f08ad2b904a46c61777cef';
 const SLIPPAGE_TOLERANCE = 0.5; //RANGE 0.01% - 49%
 const DEADLINE_MINUTES = 5; // >= 1
 const APPROVE_MAX_TRANSACTIONS = SELL_AMOUNT * 1; //any number larger than SELL_AMOUNT
@@ -16,32 +16,43 @@ const rpcProvider = new JsonRpcProvider('https://bsc-dataseed1.binance.org/');
 const wallet = new ethers.Wallet(privateKey, rpcProvider);
 const rpcSigner = wallet.connect(rpcProvider);
 
+const rpcFactory = new ethers.Contract(
+	addresses.FACTORY,
+	[
+		'event PairCreated(address indexed token0, address indexed token1, address pair, uint)',
+		'function getPair(address tokenA, address tokenB) external view returns (address pair)'
+	],
+	rpcSigner
+);	
+
+const rPcRouter = new ethers.Contract(
+	addresses.ROUTER,
+	[
+		'function getAmountsOut(uint amountIn, address[] memory path) public view returns (uint[] memory amounts)'
+	],
+	rpcSigner
+);
+
 const startConnection = async () => {
 	
 	BUY_TOKEN = ethers.utils.getAddress(BUY_TOKEN);
-	SELL_TOKEN = ethers.utils.getAddress(SELL_TOKEN);	
+	SELL_TOKEN = ethers.utils.getAddress(SELL_TOKEN);
 	
-	const factory = new ethers.Contract(
-		addresses.FACTORY,
-		[
-			'event PairCreated(address indexed token0, address indexed token1, address pair, uint)',
-			'function getPair(address tokenA, address tokenB) external view returns (address pair)'
-		],
-		rpcSigner
-	);	
+	const pair = await rpcFactory.getPair(addresses.BUSD, BUY_TOKEN);
 	
-	const rPcRouter = new ethers.Contract(
-	  addresses.ROUTER,
-	  [
-		'function getAmountsOut(uint amountIn, address[] memory path) public view returns (uint[] memory amounts)'
-	  ],
-	  rpcSigner
-	);
+	if(pair === '0x0000000000000000000000000000000000000000')
+	{
+		return;
+	}	
 	
-	const pair = await factory.getPair(addresses.BUSD, BUY_TOKEN);
 	let amountIn = (SELL_AMOUNT * ((100 - SLIPPAGE_TOLERANCE) / 100)).toString();
 	amountIn = ethers.utils.parseUnits(amountIn.toString(), 18);
 	const amountsOut = await rPcRouter.getAmountsOut(amountIn, [SELL_TOKEN, BUY_TOKEN]);
+	
+	if(!Array.isArray(amountsOut))
+	{
+		return;
+	}
 	
 	const amountOutMin = amountsOut[1];
 

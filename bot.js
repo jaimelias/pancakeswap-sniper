@@ -9,7 +9,7 @@ import notifier from 'node-notifier';
 const SELL_AMOUNT = 1;
 let SELL_TOKEN = addresses.BUSD;
 const SLIPPAGE_TOLERANCE = 0.5; //RANGE 0.01% - 49%
-const DEADLINE_MINUTES = 10; // >= 1
+const DEADLINE_MINUTES = 5; // >= 1
 const APPROVE_MAX_TRANSACTIONS = SELL_AMOUNT * 1; //any number larger than SELL_AMOUNT
 let CONTRACTS_TRADED = [];
 let TARGET_CONTRACTS = await getWhiteList(tsvList);
@@ -118,9 +118,6 @@ const startConnection = async () => {
 
 	const startSniper = async (tokenOut) => {
 
-		let amountIn = (SELL_AMOUNT * ((100 - SLIPPAGE_TOLERANCE) / 100)).toString();
-		amountIn = ethers.utils.parseUnits(amountIn.toString(), 18);
-
 		const pair = await rpcFactory.getPair(SELL_TOKEN, tokenOut);
 		
 		if(pair === '0x0000000000000000000000000000000000000000')
@@ -128,6 +125,8 @@ const startConnection = async () => {
 			return;
 		}
 		
+		let amountIn = (SELL_AMOUNT * ((100 - SLIPPAGE_TOLERANCE) / 100)).toString();
+		amountIn = ethers.utils.parseUnits(amountIn.toString(), 18);		
 		const amountsOut = await rpcRouter.getAmountsOut(amountIn, [SELL_TOKEN, tokenOut]);
 		
 		if(Array.isArray(amountsOut))
