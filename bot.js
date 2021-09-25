@@ -7,24 +7,37 @@ import open from 'open';
 import notifier from 'node-notifier';
 
 const IS_PRODUCTION = true;
-const SELL_AMOUNT = 1;
 let SELL_TOKEN = addresses.BUSD;
+const TARGET_CONTRACTS = [
+	{
+		code: 'RPG',
+		address: '0x01e0d17a533e5930a349c2bb71304f04f20ab12b',
+		maximumPriceAccepted: 0.5,
+		sellAmountInBusd: 0.545
+	}
+]
+.map(v => {
+	v.address = ethers.utils.getAddress(v.address);
+	return v;
+});
+
+//CONFIGS
 const SLIPPAGE_TOLERANCE = 0.5; //RANGE 0.01% - 49%
 const DEADLINE_MINUTES = 5; // >= 1
-const APPROVE_MAX_TRANSACTIONS = SELL_AMOUNT * 1; //any number larger than SELL_AMOUNT
 let CONTRACTS_TRADED = [];
-let TARGET_CONTRACTS = await getWhiteList(tsvList);
-TARGET_CONTRACTS = TARGET_CONTRACTS.map(v => ethers.utils.getAddress(v));
+const APPROVE_MAX_TRANSACTIONS = TARGET_CONTRACTS
+.reduce((accumulator, o) => accumulator + o.sellAmountInBusd, 0);
 
-const EXPECTED_PONG_BACK = 15000;
-const KEEP_ALIVE_CHECK_INTERVAL = 7500;
 
 const startConnection = async () => {
+
 	const webSocketProvider = new ethers.providers.WebSocketProvider(webSocketEndpoint);
 	const rpcProvider = new JsonRpcProvider('https://bsc-dataseed1.binance.org/');
 	const wallet = new ethers.Wallet(privateKey, rpcProvider);
 	const webSocketSigner = wallet.connect(webSocketProvider);
 	const rpcSigner = wallet.connect(rpcProvider);
+	const EXPECTED_PONG_BACK = 15000;
+	const KEEP_ALIVE_CHECK_INTERVAL = 7500;	
 	let pingTimeout = null;
 	let keepAliveInterval = null;
 	
@@ -55,28 +68,41 @@ const startConnection = async () => {
 	
 	let rpcSellContract = new ethers.Contract(
 		SELL_TOKEN, 
-		['function approve(address _spender, uint256 _value) public returns (bool success)'], 
+		[
+			'function approve(address _spender, uint256 _value) public returns (bool success)',
+			'function decimals() view returns (uint8)'
+		], 
 		rpcSigner
 	);
+	
+	const sellTokenDecimals = await rpcSellContract.decimals();
 	
 	if(IS_PRODUCTION)
 	{
 		await rpcSellContract.approve(
 			addresses.ROUTER, 
-			ethers.utils.parseUnits(APPROVE_MAX_TRANSACTIONS.toString(), 18), 
+			ethers.utils.parseUnits(APPROVE_MAX_TRANSACTIONS.toString(), sellTokenDecimals), 
 			{gasLimit: 100000, gasPrice: 5e9}
 		);		
 	}
 	
+	const machineGun = setInterval(() => {
+	
+		TARGET_CONTRACTS
+		.filter(v => !CONTRACTS_TRADED.includes(v.address))
+		.forEach(async (trade) => await startSniper(trade));
+		
+	}, 1000);	
+	
 	webSocketProvider._websocket.on('open', () => {
 		
 		keepAliveInterval = setInterval(() => {
-			
-			console.log('Checking if the connection is alive, sending a ping');
+	
 			webSocketProvider._websocket.ping();
-
-			//terminate connection after interval
-			pingTimeout = setTimeout(() => { webSocketProvider._websocket.terminate()}, EXPECTED_PONG_BACK);
+			
+			pingTimeout = setTimeout(() => { 
+				webSocketProvider._websocket.terminate()
+			}, EXPECTED_PONG_BACK);
 		  
 		}, KEEP_ALIVE_CHECK_INTERVAL);	
 		
@@ -103,56 +129,97 @@ const startConnection = async () => {
 			if(typeof tokenIn === 'undefined') {
 				return;
 			}
-
-			if(TARGET_CONTRACTS.includes(tokenOut))
+			
+			const trade = TARGET_CONTRACTS
+			.filter(o => !CONTRACTS_TRADED.includes(o.address))
+			.find(o => o.address === tokenOut);
+			
+			if(typeof trade === 'object')
 			{
-				startSniper(tokenOut);
-				
 				console.log(`Listed ${tokenOut}`);
 				
 				notifier.notify({
 					title: 'Contract Listed!',
 					message: tokenOut,
-					open: tradeUrl
-				});
+					open: `https://bscscan.com/token/${tokenOut}`
+				});				
+
+				await startSniper(trade);	
 			}
 		});
 
 	});
 
-	const startSniper = async (tokenOut) => {
+	const startSniper = async (trade) => {
 
+		let {code, address: tokenOut, maximumPriceAccepted, sellAmountInBusd} = trade;
+		
+		CONTRACTS_TRADED.push(tokenOut);
+		
 		const pair = await rpcFactory.getPair(SELL_TOKEN, tokenOut);
 		
 		if(pair === '0x0000000000000000000000000000000000000000')
 		{
+			console.log(`--- No Liquidity in ${code} ---`);
+
+			if (CONTRACTS_TRADED.indexOf(tokenOut) > -1) 
+			{
+				//removing token from CONTRACTS_TRADED
+				CONTRACTS_TRADED.splice(CONTRACTS_TRADED.indexOf(tokenOut), 1);
+			}					
+			
 			return;
 		}
+	
+		let rpcBuyContract = new ethers.Contract(
+			tokenOut, 
+			['function decimals() view returns (uint8)'], 
+			rpcSigner
+		);	
 		
-		let amountIn = (SELL_AMOUNT * ((100 - SLIPPAGE_TOLERANCE) / 100)).toString();
-		amountIn = ethers.utils.parseUnits(amountIn.toString(), 18);		
+		const buyTokenDecimals = await rpcBuyContract.decimals();
+		const oneTokenAmount = ethers.utils.parseUnits('1', buyTokenDecimals);
+		const amountIn = ethers.utils.parseUnits(
+			(sellAmountInBusd * ((100 - SLIPPAGE_TOLERANCE) / 100)).toString(),
+			sellTokenDecimals
+		);
 		const amountsOut = await rpcRouter.getAmountsOut(amountIn, [SELL_TOKEN, tokenOut]);
 		
-		if(Array.isArray(amountsOut))
-		{
+		Promise.all([
+			rpcRouter.getAmountsOut(amountIn, [SELL_TOKEN, tokenOut]),
+			rpcRouter.getAmountsOut(oneTokenAmount, [tokenOut, addresses.BUSD])
+		]).then(async (arr) => {
 			
-			CONTRACTS_TRADED.push(tokenOut);
+			let [
+				amountsOut, 
+				oneTokenInBusd
+			] = arr;
 			
-			console.log(`
+			amountsOut = amountsOut[1];
+			oneTokenInBusd = oneTokenInBusd[1];
+			const oneTokenInBusdFormated = ethers.utils.formatUnits(oneTokenInBusd.toString(), buyTokenDecimals);
 			
-				--- Contract has liquidity ---
-				
-				${tokenOut}
-			`);
+			//console.log({oneTokenInBusd: oneTokenInBusdFormated});
 			
-			const amountOutMin = amountsOut[1];
+			maximumPriceAccepted = ethers.utils.parseUnits(maximumPriceAccepted.toString(), buyTokenDecimals);
 			
-			console.log({amountOutMin: ethers.utils.formatUnits(amountOutMin.toString(), 'ether')});					
-			notifier.notify({
-				title: 'Contract has liquidity',
-				message: tokenOut,
-				open: `https://bscscan.com/token/${tokenOut}`
-			});	
+			if(oneTokenInBusd.gt(maximumPriceAccepted))
+			{
+				if (CONTRACTS_TRADED.indexOf(tokenOut) > -1) 
+				{
+					//removing token from CONTRACTS_TRADED
+					CONTRACTS_TRADED.splice(CONTRACTS_TRADED.indexOf(tokenOut), 1);
+				}			
+				console.log(`${code} too expensive: ${oneTokenInBusdFormated}`);
+				return;
+			}
+			else
+			{
+				clearInterval(machineGun);
+				console.log(`Buying ${code} for: ${oneTokenInBusdFormated}`);
+			}
+			
+			
 
 			if(!IS_PRODUCTION)
 			{
@@ -163,8 +230,8 @@ const startConnection = async () => {
 			
 			// Execute transaction
 			const tx = await rpcRouter.swapExactTokensForTokens(
-				ethers.utils.parseUnits(SELL_AMOUNT.toString(), 18),
-				amountOutMin,
+				ethers.utils.parseUnits(sellAmountInBusd.toString(), sellTokenDecimals),
+				amountsOut,
 				[SELL_TOKEN, tokenOut],
 				publicKey,
 				deadline,
@@ -188,38 +255,19 @@ const startConnection = async () => {
 			});
 
 			console.log(receipt);
-		}	
-	}; 
-	
-	setInterval(() => {
-				
-		TARGET_CONTRACTS.filter(v => !CONTRACTS_TRADED.includes(v)).forEach(async (tokenOut) => {
-			startSniper(tokenOut);
 		});
 		
-	}, 1000);
-	
-	setInterval(() => {
-				
-		if(TARGET_CONTRACTS.length > 0)
-		{
-			console.log(`
-				--- Searching liquidity for contracts ---
-			`);
-			console.log(TARGET_CONTRACTS.join('\n'));
-		}
-		
-	}, 30000);
+	}; 
 	
 	webSocketProvider._websocket.on('close', () => {
-		console.log('The websocket connection was closed');
+		console.log('Restaring Websocket');
 		clearInterval(keepAliveInterval);
 		clearTimeout(pingTimeout);
 		startConnection();
 	});
 
 	webSocketProvider._websocket.on('pong', () => {
-		console.log('Received pong, so connection is alive, clearing the timeout');
+		console.log('Websocket Active');
 		clearInterval(pingTimeout);
 	});	
 	
