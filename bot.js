@@ -1,4 +1,4 @@
-import {privateKey, publicKey, tsvList, webSocketEndpoint} from './secrets.js';
+import {walletPrivateKey, walletAddress, webSocketEndpoint} from './secrets.js';
 import {addresses} from './config.js';
 import {getWhiteList} from './utilities.js';
 import { ethers } from 'ethers';
@@ -6,15 +6,21 @@ import {JsonRpcProvider} from '@ethersproject/providers';
 import open from 'open';
 import notifier from 'node-notifier';
 
-const IS_PRODUCTION = true;
+const IS_PRODUCTION = false;
 let SELL_TOKEN = addresses.BUSD;
 const TARGET_CONTRACTS = [
 	{
-		code: 'RPG',
-		address: '0x01e0d17a533e5930a349c2bb71304f04f20ab12b',
-		maximumPriceAccepted: 0.5,
-		sellAmountInBusd: 0.545
-	}
+		code: 'KWS',
+		address: '0x5D0E95C15cA50F13fB86938433269D03112409Fe',
+		maximumPriceAccepted: 0.07,
+		sellAmountInBusd: 100
+	},
+	{
+		code: 'CAKE',
+		address: '0x0e09fabb73bd3ade0a17ecc321fd13a19e81ce82',
+		maximumPriceAccepted: 25,
+		sellAmountInBusd: 100
+	}	
 ]
 .map(v => {
 	v.address = ethers.utils.getAddress(v.address);
@@ -28,16 +34,16 @@ let CONTRACTS_TRADED = [];
 const APPROVE_MAX_TRANSACTIONS = TARGET_CONTRACTS
 .reduce((accumulator, o) => accumulator + o.sellAmountInBusd, 0);
 
-
 const startConnection = async () => {
 
 	const webSocketProvider = new ethers.providers.WebSocketProvider(webSocketEndpoint);
 	const rpcProvider = new JsonRpcProvider('https://bsc-dataseed1.binance.org/');
-	const wallet = new ethers.Wallet(privateKey, rpcProvider);
+	const wallet = new ethers.Wallet(walletPrivateKey, rpcProvider);
 	const webSocketSigner = wallet.connect(webSocketProvider);
 	const rpcSigner = wallet.connect(rpcProvider);
-	const EXPECTED_PONG_BACK = 15000;
-	const KEEP_ALIVE_CHECK_INTERVAL = 7500;	
+	const EXPECTED_PONG_BACK = 10000;
+	const KEEP_ALIVE_CHECK_INTERVAL = 5000;
+	const SNIPER_INTERVAL = (IS_PRODUCTION) ? 1000 : 10000;
 	let pingTimeout = null;
 	let keepAliveInterval = null;
 	
@@ -86,69 +92,63 @@ const startConnection = async () => {
 		);		
 	}
 	
-	const machineGun = setInterval(() => {
-	
-		TARGET_CONTRACTS
-		.filter(v => !CONTRACTS_TRADED.includes(v.address))
-		.forEach(async (trade) => await startSniper(trade));
+	const startWebSocket = () => {
+		webSocketProvider._websocket.on('open', () => {
+			
+			keepAliveInterval = setInterval(() => {
 		
-	}, 1000);	
-	
-	webSocketProvider._websocket.on('open', () => {
-		
-		keepAliveInterval = setInterval(() => {
-	
-			webSocketProvider._websocket.ping();
-			
-			pingTimeout = setTimeout(() => { 
-				webSocketProvider._websocket.terminate()
-			}, EXPECTED_PONG_BACK);
-		  
-		}, KEEP_ALIVE_CHECK_INTERVAL);	
-		
-		webSocketFactory.on('PairCreated', async (token0, token1, pairAddress) => {
-			
-			let tokenIn, tokenOut;
-			token0 = ethers.utils.getAddress(token0);
-			token1 = ethers.utils.getAddress(token1);
-			const addessWBNB = ethers.utils.getAddress(addresses.WBNB);
-			
-			console.log({token0, token1, addessWBNB});
-			
-			if(token0 === addessWBNB) {
-				tokenIn = token0; 
-				tokenOut = token1;
-			}
-
-			if(token1 == addessWBNB) {
-				tokenIn = token1; 
-				tokenOut = token0;
-			}
-
-			//The quote currency is not WBNB
-			if(typeof tokenIn === 'undefined') {
-				return;
-			}
-			
-			const trade = TARGET_CONTRACTS
-			.filter(o => !CONTRACTS_TRADED.includes(o.address))
-			.find(o => o.address === tokenOut);
-			
-			if(typeof trade === 'object')
-			{
-				console.log(`Listed ${tokenOut}`);
+				webSocketProvider._websocket.ping();
 				
-				notifier.notify({
-					title: 'Contract Listed!',
-					message: tokenOut,
-					open: `https://bscscan.com/token/${tokenOut}`
-				});				
+				pingTimeout = setTimeout(() => { 
+					webSocketProvider._websocket.terminate()
+				}, EXPECTED_PONG_BACK);
+			  
+			}, KEEP_ALIVE_CHECK_INTERVAL);
+			
+			
+			webSocketFactory.on('PairCreated', async (token0, token1, pairAddress) => {
+				
+				let tokenIn, tokenOut;
+				token0 = ethers.utils.getAddress(token0);
+				token1 = ethers.utils.getAddress(token1);
+				const addessWBNB = ethers.utils.getAddress(addresses.WBNB);
+							
+				if(token0 === addessWBNB) {
+					tokenIn = token0; 
+					tokenOut = token1;
+				}
 
-				await startSniper(trade);	
-			}
-		});
+				if(token1 == addessWBNB) {
+					tokenIn = token1; 
+					tokenOut = token0;
+				}
 
-	});
+				//The quote currency is not WBNB
+				if(typeof tokenIn === 'undefined') {
+					return;
+				}
+				
+				const trade = TARGET_CONTRACTS
+				.filter(o => !CONTRACTS_TRADED.includes(o.address))
+				.find(o => o.address === tokenOut);
+				
+				if(typeof trade === 'object')
+				{
+					console.log(`Listed ${tokenOut}`);
+					
+					notifier.notify({
+						title: 'Contract Listed!',
+						message: tokenOut,
+						open: `https://bscscan.com/token/${tokenOut}`
+					});				
+
+					await startSniper(trade);	
+				}
+			});
+		});		
+	};
+	
+	startWebSocket();
 
 	const startSniper = async (trade) => {
 
@@ -210,13 +210,12 @@ const startConnection = async () => {
 					//removing token from CONTRACTS_TRADED
 					CONTRACTS_TRADED.splice(CONTRACTS_TRADED.indexOf(tokenOut), 1);
 				}			
-				console.log(`${code} too expensive: ${oneTokenInBusdFormated}`);
+				console.log(`--- ${code} too expensive: ${oneTokenInBusdFormated} ---`);
 				return;
 			}
 			else
 			{
-				clearInterval(machineGun);
-				console.log(`Buying ${code} for: ${oneTokenInBusdFormated}`);
+				console.log(`+++ Buying ${code} for: ${oneTokenInBusdFormated} +++`);
 			}
 			
 			
@@ -233,7 +232,7 @@ const startConnection = async () => {
 				ethers.utils.parseUnits(sellAmountInBusd.toString(), sellTokenDecimals),
 				amountsOut,
 				[SELL_TOKEN, tokenOut],
-				publicKey,
+				walletAddress,
 				deadline,
 				{ 
 					gasLimit: ethers.utils.hexlify(200000), 
@@ -259,17 +258,27 @@ const startConnection = async () => {
 		
 	}; 
 	
+	
+	
 	webSocketProvider._websocket.on('close', () => {
 		console.log('Restaring Websocket');
 		clearInterval(keepAliveInterval);
 		clearTimeout(pingTimeout);
-		startConnection();
+		startWebSocket();
 	});
 
 	webSocketProvider._websocket.on('pong', () => {
 		console.log('Websocket Active');
 		clearInterval(pingTimeout);
 	});	
+	
+	setInterval(() => {
+	
+		TARGET_CONTRACTS
+		.filter(v => !CONTRACTS_TRADED.includes(v.address))
+		.forEach(async (trade) => await startSniper(trade));
+		
+	}, SNIPER_INTERVAL);	
 	
 };
 
