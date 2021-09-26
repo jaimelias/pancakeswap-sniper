@@ -1,38 +1,25 @@
+import {targets, saleToken} from './contracts.js';
 import {walletPrivateKey, walletAddress} from './secrets.js';
 import {addresses} from './config.js';
-import {getWhiteList} from './utilities.js';
+import {openPancakeSwap, openBscScan, tradeHasFailed} from './utilities.js';
 import { ethers } from 'ethers';
 import {JsonRpcProvider} from '@ethersproject/providers';
 import open from 'open';
 import notifier from 'node-notifier';
 
 const IS_PRODUCTION = false;
-let SELL_TOKEN = addresses.BUSD;
-const TARGET_CONTRACTS = [
-	{
-		code: 'KWS',
-		address: '0x5D0E95C15cA50F13fB86938433269D03112409Fe',
-		maximumPriceAccepted: 0.07,
-		sellAmountInBusd: 100
-	},
-	{
-		code: 'CAKE',
-		address: '0x0e09fabb73bd3ade0a17ecc321fd13a19e81ce82',
-		maximumPriceAccepted: 25,
-		sellAmountInBusd: 100
-	}	
-]
-.map(v => {
+let SELL_TOKEN = ethers.utils.getAddress(saleToken);
+addresses.WBNB = ethers.utils.getAddress(addresses.WBNB);
+let TARGET_CONTRACTS = targets.map(v => {
 	v.address = ethers.utils.getAddress(v.address);
 	return v;
 });
 
 //CONFIGS
-const SLIPPAGE_TOLERANCE = 0.5; //RANGE 0.01% - 49%
+const SLIPPAGE_TOLERANCE = 5; //RANGE 0.5% - 49%
 const DEADLINE_MINUTES = 5; // >= 1
 let CONTRACTS_TRADED = [];
-const APPROVE_MAX_TRANSACTIONS = TARGET_CONTRACTS
-.reduce((accumulator, o) => accumulator + o.sellAmountInBusd, 0);
+const APPROVE_MAX_TRANSACTIONS = TARGET_CONTRACTS.reduce((accumulator, o) => accumulator + o.exactAmount, 0);
 
 const startConnection = async () => {
 
@@ -41,12 +28,10 @@ const startConnection = async () => {
 	const rpcSigner = wallet.connect(rpcProvider);
 	const EXPECTED_PONG_BACK = 15000;
 	const KEEP_ALIVE_CHECK_INTERVAL = 7500;
-	const SNIPER_INTERVAL = (IS_PRODUCTION) ? 1000 : 10000;
+	const SNIPER_INTERVAL = (IS_PRODUCTION) ? 200 : 5000;
 	let pingTimeout = null;
 	let keepAliveInterval = null;
-	
-	SELL_TOKEN = ethers.utils.getAddress(SELL_TOKEN);
-	
+		
 	const rpcRouter = new ethers.Contract(
 		addresses.ROUTER,
 		[
@@ -90,14 +75,13 @@ const startConnection = async () => {
 		let tokenIn, tokenOut;
 		token0 = ethers.utils.getAddress(token0);
 		token1 = ethers.utils.getAddress(token1);
-		const addessWBNB = ethers.utils.getAddress(addresses.WBNB);
 							
-		if(token0 === addessWBNB) {
+		if(token0 === addresses.WBNB) {
 			tokenIn = token0; 
 			tokenOut = token1;
 		}
 
-		if(token1 == addessWBNB) {
+		if(token1 == addresses.WBNB) {
 			tokenIn = token1; 
 			tokenOut = token0;
 		}
@@ -121,13 +105,20 @@ const startConnection = async () => {
 				open: `https://bscscan.com/token/${tokenOut}`
 			});				
 
-			await snipeContract(trade);	
+			snipeContract(trade);	
 		}
 	});
 
 	const snipeContract = async (trade) => {
 
-		let {code, address: tokenOut, maximumPriceAccepted, sellAmountInBusd} = trade;
+		let {code, address: tokenOut, maximumPriceAccepted, exactAmount, failedOnce} = trade;
+		
+		const pancakeSwapParams = {
+			inputCurrency: SELL_TOKEN, 
+			outputCurrency: tokenOut, 
+			slippage: SLIPPAGE_TOLERANCE, 
+			exactAmount: exactAmount
+		};
 		
 		CONTRACTS_TRADED.push(tokenOut);
 		
@@ -141,21 +132,30 @@ const startConnection = async () => {
 			{
 				//removing token from CONTRACTS_TRADED
 				CONTRACTS_TRADED.splice(CONTRACTS_TRADED.indexOf(tokenOut), 1);
-			}					
+			}
+
+			if(!failedOnce) 
+			{
+				await openPancakeSwap(pancakeSwapParams);
+				TARGET_CONTRACTS = tradeHasFailed({tokenOut, TARGET_CONTRACTS, status: true});
+			}
 			
 			return;
 		}
+		
+		TARGET_CONTRACTS = tradeHasFailed({tokenOut, TARGET_CONTRACTS, status: false});
 	
 		let rpcBuyContract = new ethers.Contract(
 			tokenOut, 
 			['function decimals() view returns (uint8)'], 
 			rpcSigner
 		);	
+
 		
 		const buyTokenDecimals = await rpcBuyContract.decimals();
 		const oneTokenAmount = ethers.utils.parseUnits('1', buyTokenDecimals);
 		const amountIn = ethers.utils.parseUnits(
-			(sellAmountInBusd * ((100 - SLIPPAGE_TOLERANCE) / 100)).toString(),
+			(exactAmount * ((100 - SLIPPAGE_TOLERANCE) / 100)).toString(),
 			sellTokenDecimals
 		);
 		const amountsOut = await rpcRouter.getAmountsOut(amountIn, [SELL_TOKEN, tokenOut]);
@@ -198,35 +198,43 @@ const startConnection = async () => {
 				return;
 			}
 
-			const deadline = Math.floor(Date.now() / 1000) + 60 * DEADLINE_MINUTES;
-			
-			// Execute transaction
-			const tx = await rpcRouter.swapExactTokensForTokens(
-				ethers.utils.parseUnits(sellAmountInBusd.toString(), sellTokenDecimals),
-				amountsOut,
-				[SELL_TOKEN, tokenOut],
-				walletAddress,
-				deadline,
-				{ 
-					gasLimit: ethers.utils.hexlify(200000), 
-					gasPrice: ethers.utils.parseUnits('10', 'gwei') 
-				}
-			);
-			
-			console.log(`Tx-hash: ${tx.hash}`);
-			
-			const receipt = await tx.wait();
-			const tradeUrl = `https://bscscan.com/tx/${tx.hash}`;
-			
-			await open(tradeUrl);
-			
-			notifier.notify({
-				title: 'Transaction Submited!',
-				message: `Hash: ${tx.hash}`,
-				open: tradeUrl
-			});
 
-			console.log(receipt);
+			try{
+				const deadline = Math.floor(Date.now() / 1000) + 60 * DEADLINE_MINUTES;
+				
+				// Execute transaction
+				const tx = await rpcRouter.swapExactTokensForTokens(
+					ethers.utils.parseUnits(exactAmount.toString(), sellTokenDecimals),
+					amountsOut,
+					[SELL_TOKEN, tokenOut],
+					walletAddress,
+					deadline,
+					{ 
+						gasLimit: ethers.utils.hexlify(200000), 
+						gasPrice: ethers.utils.parseUnits('10', 'gwei') 
+					}
+				);
+				
+				console.log(`Tx-hash: ${tx.hash}`);
+				
+				const receipt = await tx.wait();
+				const tradeUrl = `https://bscscan.com/tx/${tx.hash}`;
+				
+				await openBscScan(tx.hash);
+				
+				notifier.notify({
+					title: 'Transaction Submited!',
+					message: `Hash: ${tx.hash}`,
+					open: tradeUrl
+				});
+
+				console.log(receipt);				
+			}
+			catch(e) {
+				await openPancakeSwap(pancakeSwapParams);
+				TARGET_CONTRACTS = tradeHasFailed({tokenOut, TARGET_CONTRACTS, status: true});
+				console.log(e);
+			}
 		});
 		
 	};
@@ -234,10 +242,10 @@ const startConnection = async () => {
 	const startSniper = async () => {
 		TARGET_CONTRACTS
 		.filter(v => !CONTRACTS_TRADED.includes(v.address))
-		.forEach(async (trade) => await snipeContract(trade));		
+		.forEach(trade => snipeContract(trade));		
 	};
 	
-	setInterval(async () => await startSniper(), SNIPER_INTERVAL);
+	setInterval(() => startSniper(), SNIPER_INTERVAL);
 	
 	await startSniper();
 };
