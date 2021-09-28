@@ -108,7 +108,17 @@ const startConnection = async () => {
 
 	const snipeContract = async (trade) => {
 
-		const {code, address: tokenOut, maximumPriceAccepted, saleAmount, tokenIn, pairAddress, slippage, deadlineMinutes} = trade;
+		let {
+			code, 
+			address: tokenOut,
+			maxPurchasePrice,
+			forceSwapToMaxPurchasePrice,
+			saleAmount,
+			tokenIn,
+			pairAddress,
+			slippage,
+			deadlineMinutes
+		} = trade;
 				
 		const pancakeSwapParams = {
 			inputCurrency: SELL_TOKEN, 
@@ -126,7 +136,7 @@ const startConnection = async () => {
 		
 		const pair = await rpcFactory.getPair(SELL_TOKEN, tokenOut);
 		
-		if(pair === '0x0000000000000000000000000000000000000000')
+		if(pair === '0x0000000000000000000000000000000000000000' && !forceSwapToMaxPurchasePrice)
 		{
 			console.log(`--- No Liquidity in ${code}: ${tokenOut} ---`);
 			
@@ -158,89 +168,84 @@ const startConnection = async () => {
 			rpcSigner
 		);	
 
-		
 		//const buyTokenDecimals = await rpcBuyContract.decimals();
 		const oneTokenAmount = parseEther('1');
+		const getTokensOut = (!forceSwapToMaxPurchasePrice) ? await rpcRouter.getAmountsOut(oneTokenAmount, [tokenOut, addresses.BUSD]) : [null, parseEther(maxPurchasePrice.toString())];
+			
+		let oneTokenInBusd = getTokensOut[1];
 		
-		Promise.all([
-			rpcRouter.getAmountsOut(oneTokenAmount, [tokenOut, addresses.BUSD])
-		]).then(async (arr) => {
-			
-			let oneTokenInBusd = arr[0][1];
-			
-			const oneTokenInBusdFormated = formatEther(oneTokenInBusd.toString());
-			let amountsOut = (saleAmount / parseFloat(oneTokenInBusdFormated)) * ((100 - slippage) / 100);
-			amountsOut = parseEther(amountsOut.toString());
-			
-			console.log(`--- Quote ${saleAmount} tokenOut - ${slippage}% slippage = ${formatEther(amountsOut)} ${code} ---`);
-			
-			const maxPurchasePrice = parseEther(maximumPriceAccepted.toString());
-			
-			if(oneTokenInBusd.gt(maxPurchasePrice))
-			{
-				CONTRACTS_TRADED[tokenOut].trading = false;
-				console.log(`--- ${code} too expensive: ${oneTokenInBusdFormated} ---`);
-				return;
-			}
-			else
-			{
-				console.log(`+++ Buying ${code} for: ${oneTokenInBusdFormated} +++`);
-			}
-			
-			console.log('saleAmount ' + formatEther(parseEther(saleAmount.toString())));
-			console.log('amountsOut ' + formatEther(amountsOut));
-			
-			if(!IS_PRODUCTION)
-			{
-				return;
-			}
-			
-			try{
-				const deadline = Math.floor(Date.now() / 1000) + 60 * deadlineMinutes;
-				
-				// Execute transaction
-				const tx = await rpcRouter.swapExactTokensForTokens(
-					parseEther(saleAmount.toString()),
-					amountsOut,
-					[SELL_TOKEN, tokenOut],
-					walletAddress,
-					deadline,
-					{ 
-						gasLimit: hexlify(200000), 
-						gasPrice: parseUnits('10', 'gwei') 
-					}
-				);
-				
-				console.log(`Tx-hash: ${tx.hash}`);
-				
-				const receipt = await tx.wait();
-				const tradeUrl = `https://bscscan.com/tx/${tx.hash}`;
-				
-				await openBscScan(tx.hash);
-				
-				notifier.notify({
-					title: 'Transaction Submited!',
-					message: `Hash: ${tx.hash}`,
-					open: tradeUrl
-				});
-
-				console.log(receipt);				
-			}
-			catch(e) {
-				
-				const {transactionHash} = e;
-				await openPancakeSwap(pancakeSwapParams);
-				
-				notifier.notify({
-					title: 'Transaction Failed!',
-					message: `Hash: ${transactionHash}`,
-					open: `${bscScanUrl}${transactionHash}`
-				});
-
-				await openBscScan(transactionHash);
-			}
-		});
+		const oneTokenInBusdFormated = formatEther(oneTokenInBusd.toString());
+		let amountsOut = (saleAmount / parseFloat(oneTokenInBusdFormated)) * ((100 - slippage) / 100);
+		amountsOut = parseEther(amountsOut.toString());
 		
+		console.log(`--- Quote ${saleAmount} tokenOut - ${slippage}% slippage = ${formatEther(amountsOut)} ${code} ---`);
+		
+		maxPurchasePrice = parseEther(maxPurchasePrice.toString());
+		
+		if(oneTokenInBusd.gt(maxPurchasePrice) && !forceSwapToMaxPurchasePrice)
+		{
+			CONTRACTS_TRADED[tokenOut].trading = false;
+			console.log(`--- ${code} too expensive: ${oneTokenInBusdFormated} ---`);
+			return;
+		}
+		else
+		{
+			console.log(`+++ Buying ${code} for: ${oneTokenInBusdFormated} +++`);
+		}
+		
+		console.log('saleAmount ' + formatEther(parseEther(saleAmount.toString())));
+		console.log('amountsOut ' + formatEther(amountsOut));
+		
+		if(!IS_PRODUCTION)
+		{
+			return;
+		}
+		
+		try{
+			const deadline = Math.floor(Date.now() / 1000) + 60 * deadlineMinutes;
+			
+			// Execute transaction
+			const tx = await rpcRouter.swapExactTokensForTokens(
+				parseEther(saleAmount.toString()),
+				amountsOut,
+				[SELL_TOKEN, tokenOut],
+				walletAddress,
+				deadline,
+				{ 
+					gasLimit: hexlify(200000), 
+					gasPrice: parseUnits('10', 'gwei') 
+				}
+			);
+			
+			console.log(`Tx-hash: ${tx.hash}`);
+			
+			const receipt = await tx.wait();
+			const tradeUrl = `https://bscscan.com/tx/${tx.hash}`;
+			
+			await openBscScan(tx.hash);
+			
+			notifier.notify({
+				title: 'Transaction Submited!',
+				message: `Hash: ${tx.hash}`,
+				open: tradeUrl
+			});
+
+			console.log(receipt);			
+		}
+		catch(e) {
+			
+			const {transactionHash} = e;
+			await openPancakeSwap(pancakeSwapParams);
+						
+			notifier.notify({
+				title: 'Transaction Failed!',
+				message: `Hash: ${transactionHash}`,
+				open: `${bscScanUrl}${transactionHash}`
+			});
+
+			await openBscScan(transactionHash);
+		}
+
 	};
 	
 	const startSniper = () => {
@@ -264,7 +269,37 @@ const startConnection = async () => {
 	setInterval(() => startSniper(), SNIPER_INTERVAL);
 	
 	setInterval(async () => {
-		TARGET_CONTRACTS = await getTargetContracts();
+		
+		const data = await getTargetContracts();
+		
+		if(data)
+		{
+			data.forEach(o => {
+
+				let previousTargets = TARGET_CONTRACTS
+					.find(i => i.address === o.address);
+				
+				if(typeof previousTargets === 'object')
+				{
+					const updatedJson = JSON.stringify(o);
+					previousTargets = JSON.stringify(previousTargets);
+					
+					if(!CONTRACTS_TRADED.hasOwnProperty(o.address))
+					{
+						CONTRACTS_TRADED[o.address] = {};
+					}
+					
+					if(previousTargets !== updatedJson)
+					{
+						CONTRACTS_TRADED[o.address].trading = false;
+					}					
+				}
+				
+			});
+			
+			TARGET_CONTRACTS = data;
+		}
+		
 	}, 4000);
 	
 	startSniper();
