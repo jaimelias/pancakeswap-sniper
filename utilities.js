@@ -1,9 +1,14 @@
 import fetch from 'node-fetch';
 import open from 'open';
+import * as fs from 'fs';
+import { ethers } from 'ethers';
+
+const {getAddress} = ethers.utils;
 
 export const openPancakeSwap = async ({inputCurrency, outputCurrency, slippage, exactAmount}) => await open(`https://pancakeswap.finance/swap?inputCurrency=${inputCurrency}&outputCurrency=${outputCurrency}&slippage=${slippage}&exactAmount=${exactAmount}`);
 
-export const openBscScan = async (hash) => await open(`https://bscscan.com/tx/${hash}`);
+export const bscScanUrl = 'https://bscscan.com/tx/';
+export const openBscScan = async (hash) => await open(`${bscScanUrl}${hash}`);
 
 export const getWhiteList = async (tsvList) => {
 	
@@ -25,13 +30,22 @@ export const getWhiteList = async (tsvList) => {
 	return [];
 };
 
-export const tradeHasFailed = ({tokenOut, TARGET_CONTRACTS, status}) => {
-	return TARGET_CONTRACTS.map((o, i) => {
-		if(o.address === tokenOut)
-		{
-			o.failedOnce = (status) ? true : false;
-		}
+const openTargetContracts = async () => fs.readFileSync('targetContracts.json', 'utf8');
+
+export const getTargetContracts = async () => {
+	const json = await openTargetContracts();
+	
+	if(json)
+	{
+		const data = JSON.parse(json);
 		
-		return o;
-	});					
+		return data.map(o => {
+			o.address = getAddress(o.address);
+			o.slippage = (o.slippage < 0.5) ? 0.5 : o.slippage
+			return o;
+		});
+	}
+	
+	return [];
 };
+
