@@ -51,7 +51,9 @@ const startConnection = async () => {
 		SELL_TOKEN, 
 		[
 			'function approve(address _spender, uint256 _value) public returns (bool success)',
-			'function decimals() view returns (uint8)'
+			'function decimals() view returns (uint8)',
+			'function balanceOf(address owner) view returns (uint256)',
+			'function symbol() view returns (string)'
 		], 
 		rpcSigner
 	);
@@ -164,7 +166,10 @@ const startConnection = async () => {
 	
 		let rpcBuyContract = new ethers.Contract(
 			tokenOut, 
-			['function decimals() view returns (uint8)'], 
+			[
+				'function decimals() view returns (uint8)',
+				'function balanceOf(address owner) view returns (uint256)'
+			], 
 			rpcSigner
 		);	
 
@@ -193,8 +198,8 @@ const startConnection = async () => {
 			console.log(`+++ Buying ${code} for: ${oneTokenInBusdFormated} +++`);
 		}
 		
-		console.log('saleAmount ' + formatEther(parseEther(saleAmount.toString())));
-		console.log('amountsOut ' + formatEther(amountsOut));
+		console.log('+++ saleAmount ' + formatEther(parseEther(saleAmount.toString())) + ' +++');
+		console.log('+++ amountsOut ' + formatEther(amountsOut) + ' +++');
 		
 		if(!IS_PRODUCTION)
 		{
@@ -222,15 +227,38 @@ const startConnection = async () => {
 			const receipt = await tx.wait();
 			const tradeUrl = `https://bscscan.com/tx/${tx.hash}`;
 			
-			await openBscScan(tx.hash);
-			
 			notifier.notify({
 				title: 'Transaction Submited!',
 				message: `Hash: ${tx.hash}`,
 				open: tradeUrl
 			});
 
-			console.log(receipt);			
+			if(receipt)
+			{
+				if(receipt.status)
+				{
+					console.log({receiptKeys: Object.keys(receipt)});
+					let tokenOutBalance = await rpcBuyContract.balanceOf(walletAddress);
+					let tokenInBalance = await rpcSellContract.balanceOf(walletAddress);
+					let tokenInSymbol = await rpcSellContract.symbol(walletAddress);
+					
+					if(tokenOutBalance && tokenInBalance && tokenInSymbol)
+					{
+						tokenOutBalance = formatEther(tokenOutBalance);
+						tokenInBalance = formatEther(tokenInBalance);
+						console.log(`*** Transaction Successful: ${tx.hash} ***`);
+						console.log(`*** ${code} Balance ${tokenOutBalance} ***`);
+						console.log(`*** ${tokenInSymbol} Balance ${tokenInBalance} ***`);
+					}	
+				}
+				else
+				{
+					console.log(`Transaction Failed: ${tx.hash}`);
+					await openPancakeSwap(pancakeSwapParams);
+				}
+			}
+			
+			await openBscScan(tx.hash);
 		}
 		catch(e) {
 			
