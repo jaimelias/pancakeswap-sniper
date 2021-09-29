@@ -2,10 +2,9 @@
 	{
 		"code": "ADA",
 		"address": "0x3ee2200efb3400fabb9aacf31297cbdd1d435d47",
-		"maxPurchasePrice": 1,
-		"forceSwapToMaxPurchasePrice": true,
-		"saleAmount": 5,
-		"slippage": 10,
+		"saleAmount": 10,		
+		"maxPurchasePrice": 2.7,
+		"slippage": 0.5,
 		"deadlineMinutes": 5
 	}
 ]

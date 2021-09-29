@@ -52,8 +52,7 @@ const startConnection = async () => {
 		[
 			'function approve(address _spender, uint256 _value) public returns (bool success)',
 			'function decimals() view returns (uint8)',
-			'function balanceOf(address owner) view returns (uint256)',
-			'function symbol() view returns (string)'
+			'function balanceOf(address owner) view returns (uint256)'
 		], 
 		rpcSigner
 	);
@@ -114,7 +113,6 @@ const startConnection = async () => {
 			code, 
 			address: tokenOut,
 			maxPurchasePrice,
-			forceSwapToMaxPurchasePrice,
 			saleAmount,
 			tokenIn,
 			pairAddress,
@@ -138,7 +136,7 @@ const startConnection = async () => {
 		
 		const pair = await rpcFactory.getPair(SELL_TOKEN, tokenOut);
 		
-		if(pair === '0x0000000000000000000000000000000000000000' && !forceSwapToMaxPurchasePrice)
+		if(pair === '0x0000000000000000000000000000000000000000')
 		{
 			console.log(`--- No Liquidity in ${code}: ${tokenOut} ---`);
 			
@@ -173,33 +171,31 @@ const startConnection = async () => {
 			rpcSigner
 		);	
 
-		//const buyTokenDecimals = await rpcBuyContract.decimals();
-		const oneTokenAmount = parseEther('1');
-		const getTokensOut = (!forceSwapToMaxPurchasePrice) ? await rpcRouter.getAmountsOut(oneTokenAmount, [tokenOut, addresses.BUSD]) : [null, parseEther(maxPurchasePrice.toString())];
-			
-		let oneTokenInBusd = getTokensOut[1];
+		const buyTokenDecimals = await rpcBuyContract.decimals();
+		const oneToken = parseUnits('1', sellTokenDecimals);
+		const slippedAmount = saleAmount * ((100 - slippage) / 100);
+		const slippedAmountIn = parseUnits(slippedAmount.toString(), sellTokenDecimals);		
 		
-		const oneTokenInBusdFormated = formatEther(oneTokenInBusd.toString());
-		let amountsOut = (saleAmount / parseFloat(oneTokenInBusdFormated)) * ((100 - slippage) / 100);
-		amountsOut = parseEther(amountsOut.toString());
+		let amountsOut = await rpcRouter.getAmountsOut(slippedAmountIn, [SELL_TOKEN, tokenOut]);
+		amountsOut = amountsOut[1];
 		
-		console.log(`--- Quote ${saleAmount} tokenOut - ${slippage}% slippage = ${formatEther(amountsOut)} ${code} ---`);
-		
-		maxPurchasePrice = parseEther(maxPurchasePrice.toString());
-		
-		if(oneTokenInBusd.gt(maxPurchasePrice) && !forceSwapToMaxPurchasePrice)
+		let oneAmountOut = await rpcRouter.getAmountsOut(oneToken, [SELL_TOKEN, tokenOut]);
+		oneAmountOut = oneAmountOut[1];
+		const oneAmountOutFormated = parseFloat(formatUnits(oneAmountOut, buyTokenDecimals));		
+		const pricePerToken = 1 / oneAmountOutFormated;
+							
+		if(pricePerToken > maxPurchasePrice)
 		{
 			CONTRACTS_TRADED[tokenOut].trading = false;
-			console.log(`--- ${code} too expensive: ${oneTokenInBusdFormated} ---`);
+			console.log(`--- ${code} too expensive: ${pricePerToken} per token ---`);
 			return;
 		}
 		else
 		{
-			console.log(`+++ Buying ${code} for: ${oneTokenInBusdFormated} +++`);
+			console.log(`+++ Buying ${code} at ${pricePerToken} +++`);
 		}
 		
-		console.log('+++ saleAmount ' + formatEther(parseEther(saleAmount.toString())) + ' +++');
-		console.log('+++ amountsOut ' + formatEther(amountsOut) + ' +++');
+		console.log(`-- Selling ${saleAmount} tokens --`);
 		
 		if(!IS_PRODUCTION)
 		{
@@ -237,18 +233,15 @@ const startConnection = async () => {
 			{
 				if(receipt.status)
 				{
-					console.log({receiptKeys: Object.keys(receipt)});
 					let tokenOutBalance = await rpcBuyContract.balanceOf(walletAddress);
 					let tokenInBalance = await rpcSellContract.balanceOf(walletAddress);
-					let tokenInSymbol = await rpcSellContract.symbol(walletAddress);
 					
-					if(tokenOutBalance && tokenInBalance && tokenInSymbol)
+					if(tokenOutBalance && tokenInBalance)
 					{
 						tokenOutBalance = formatEther(tokenOutBalance);
 						tokenInBalance = formatEther(tokenInBalance);
 						console.log(`*** Transaction Successful: ${tx.hash} ***`);
 						console.log(`*** ${code} Balance ${tokenOutBalance} ***`);
-						console.log(`*** ${tokenInSymbol} Balance ${tokenInBalance} ***`);
 					}	
 				}
 				else
