@@ -134,7 +134,9 @@ const startConnection = async () => {
 			await rpcFactory.getPair(addresses.BUSD, tokenOut)
 		];
 		
-		if(pair.includes('0x0000000000000000000000000000000000000000'))
+		const hasLiquidity = val => val === '0x0000000000000000000000000000000000000000';
+		
+		if(pair.every(hasLiquidity))
 		{
 			console.log(`--- No Liquidity in ${code}: ${tokenOut} ---`);
 			
