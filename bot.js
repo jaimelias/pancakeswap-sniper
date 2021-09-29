@@ -1,9 +1,8 @@
-import {walletPrivateKey, walletAddress, webSocketEndpoint} from './secrets.js';
+import {walletPrivateKey, walletAddress} from './secrets.js';
 import {getAddresses} from './config.js';
 import {openPancakeSwap, openBscScan, bscScanUrl, getTargetContracts} from './utilities.js';
 import { ethers } from 'ethers';
 import {JsonRpcProvider} from '@ethersproject/providers';
-import open from 'open';
 import notifier from 'node-notifier';
 
 const {getAddress, formatUnits, parseUnits, hexlify, formatEther, parseEther} = ethers.utils;
@@ -14,7 +13,6 @@ let SELL_TOKEN = getAddress(addresses.BUSD);
 let TARGET_CONTRACTS = await getTargetContracts();
 
 //CONFIGS
-const DEADLINE_MINUTES = 5; // >= 1
 let CONTRACTS_TRADED = {};
 const APPROVE_MAX_TRANSACTIONS = TARGET_CONTRACTS.reduce((accumulator, o) => accumulator + o.saleAmount, 0);
 
@@ -23,11 +21,8 @@ const startConnection = async () => {
 	const rpcProvider = new JsonRpcProvider('https://bsc-dataseed1.binance.org/');
 	const wallet = new ethers.Wallet(walletPrivateKey, rpcProvider);
 	const rpcSigner = wallet.connect(rpcProvider);
-	const EXPECTED_PONG_BACK = 15000;
-	const KEEP_ALIVE_CHECK_INTERVAL = 7500;
 	const SNIPER_INTERVAL = (IS_PRODUCTION) ? 200 : 5000;
-	let pingTimeout = null;
-	let keepAliveInterval = null;
+
 		
 	const rpcRouter = new ethers.Contract(
 		addresses.ROUTER,
@@ -134,9 +129,12 @@ const startConnection = async () => {
 		
 		CONTRACTS_TRADED[tokenOut].trading = true;
 		
-		const pair = await rpcFactory.getPair(SELL_TOKEN, tokenOut);
+		const pair = [
+			await rpcFactory.getPair(addresses.WBNB, tokenOut),
+			await rpcFactory.getPair(addresses.BUSD, tokenOut)
+		];
 		
-		if(pair === '0x0000000000000000000000000000000000000000')
+		if(pair.includes('0x0000000000000000000000000000000000000000'))
 		{
 			console.log(`--- No Liquidity in ${code}: ${tokenOut} ---`);
 			
@@ -183,18 +181,18 @@ const startConnection = async () => {
 		oneAmountOut = oneAmountOut[1];
 		const oneAmountOutFormated = parseFloat(formatUnits(oneAmountOut, buyTokenDecimals));		
 		const pricePerToken = 1 / oneAmountOutFormated;
-							
-		if(pricePerToken > maxPurchasePrice)
+		
+		if(maxPurchasePrice)
 		{
-			CONTRACTS_TRADED[tokenOut].trading = false;
-			console.log(`--- ${code} too expensive: ${pricePerToken} per token ---`);
-			return;
-		}
-		else
-		{
-			console.log(`+++ Buying ${code} at ${pricePerToken} +++`);
+			if(pricePerToken > maxPurchasePrice)
+			{
+				CONTRACTS_TRADED[tokenOut].trading = false;
+				console.log(`--- ${code} too expensive: ${pricePerToken} per token ---`);
+				return;
+			}			
 		}
 		
+		console.log(`+++ Buying ${code} at ${pricePerToken} +++`);
 		console.log(`-- Selling ${saleAmount} tokens --`);
 		
 		if(!IS_PRODUCTION)
@@ -205,7 +203,7 @@ const startConnection = async () => {
 		try{
 			const deadline = Math.floor(Date.now() / 1000) + 60 * deadlineMinutes;
 			
-			// Execute transaction
+			// Execute swap
 			const tx = await rpcRouter.swapExactTokensForTokens(
 				parseEther(saleAmount.toString()),
 				amountsOut,
