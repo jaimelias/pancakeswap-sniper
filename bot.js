@@ -5,9 +5,10 @@ import { ethers } from 'ethers';
 import {JsonRpcProvider} from '@ethersproject/providers';
 import notifier from 'node-notifier';
 
-const {getAddress, formatUnits, parseUnits, hexlify, formatEther, parseEther} = ethers.utils;
+const {utils, BigNumber} = ethers;
+const {getAddress, formatUnits, parseUnits, hexlify, formatEther, parseEther} = utils;
 
-const IS_PRODUCTION = false;
+const IS_PRODUCTION = true;
 const addresses = getAddresses();
 let SELL_TOKEN = getAddress(addresses.BUSD);
 let TARGET_CONTRACTS = await getTargetContracts();
@@ -15,15 +16,15 @@ let TARGET_CONTRACTS = await getTargetContracts();
 //CONFIGS
 let CONTRACTS_TRADED = {};
 const APPROVE_MAX_TRANSACTIONS = TARGET_CONTRACTS.reduce((accumulator, o) => accumulator + o.saleAmount, 0);
+const dummyAddress = '0x0000000000000000000000000000000000000000';
 
 const startConnection = async () => {
 
 	const rpcProvider = new JsonRpcProvider('https://bsc-dataseed1.binance.org/');
 	const wallet = new ethers.Wallet(walletPrivateKey, rpcProvider);
 	const rpcSigner = wallet.connect(rpcProvider);
-	const SNIPER_INTERVAL = (IS_PRODUCTION) ? 200 : 5000;
+	const SNIPER_INTERVAL = (IS_PRODUCTION) ? 1000 : 5000;
 
-		
 	const rpcRouter = new ethers.Contract(
 		addresses.ROUTER,
 		[
@@ -42,7 +43,7 @@ const startConnection = async () => {
 		rpcSigner
 	);
 	
-	let rpcSellContract = new ethers.Contract(
+	let rpcInContract = new ethers.Contract(
 		SELL_TOKEN, 
 		[
 			'function approve(address _spender, uint256 _value) public returns (bool success)',
@@ -52,13 +53,13 @@ const startConnection = async () => {
 		rpcSigner
 	);
 	
-	const sellTokenDecimals = await rpcSellContract.decimals();
+	const tokenInDecimals = await rpcInContract.decimals();
 	
 	if(IS_PRODUCTION)
 	{
-		await rpcSellContract.approve(
+		await rpcInContract.approve(
 			addresses.ROUTER, 
-			parseUnits(APPROVE_MAX_TRANSACTIONS.toString(), sellTokenDecimals), 
+			parseUnits(APPROVE_MAX_TRANSACTIONS.toString(), tokenInDecimals), 
 			{gasLimit: 100000, gasPrice: 5e9}
 		);		
 	}
@@ -134,7 +135,7 @@ const startConnection = async () => {
 			await rpcFactory.getPair(addresses.BUSD, tokenOut)
 		];
 		
-		const hasLiquidity = val => val === '0x0000000000000000000000000000000000000000';
+		const hasLiquidity = val => val === dummyAddress;
 		
 		if(pair.every(hasLiquidity))
 		{
@@ -153,8 +154,8 @@ const startConnection = async () => {
 
 			if(!CONTRACTS_TRADED[tokenOut].failedOnce) 
 			{
-				await openPancakeSwap(pancakeSwapParams);
 				CONTRACTS_TRADED[tokenOut].failedOnce = true;
+				await openPancakeSwap(pancakeSwapParams);
 			}
 			
 			return;
@@ -162,27 +163,36 @@ const startConnection = async () => {
 		
 		CONTRACTS_TRADED[tokenOut].failedOnce = false;
 	
-		let rpcBuyContract = new ethers.Contract(
-			tokenOut, 
-			[
-				'function decimals() view returns (uint8)',
-				'function balanceOf(address owner) view returns (uint256)'
-			], 
-			rpcSigner
-		);	
-
-		const buyTokenDecimals = await rpcBuyContract.decimals();
-		const oneToken = parseUnits('1', sellTokenDecimals);
-		const slippedAmount = saleAmount * ((100 - slippage) / 100);
-		const slippedAmountIn = parseUnits(slippedAmount.toString(), sellTokenDecimals);		
+		//INSERT
 		
-		let amountsOut = await rpcRouter.getAmountsOut(slippedAmountIn, [SELL_TOKEN, tokenOut]);
-		amountsOut = amountsOut[1];
+		const {rpcOutContract, tokenOutDecimals} = CONTRACTS_TRADED[tokenOut];
+		
+		let oneToken = (1).toFixed(tokenInDecimals).toString();
+		oneToken = parseUnits(oneToken, tokenInDecimals);
+		
+		let slippedAmount = saleAmount * ((100 - slippage) / 100);
+		slippedAmount = slippedAmount.toFixed(tokenInDecimals).toString();
+		slippedAmount = parseUnits(slippedAmount, tokenInDecimals);
+		const slippedAmountFormated = parseFloat(formatUnits(slippedAmount, tokenOutDecimals));
 		
 		let oneAmountOut = await rpcRouter.getAmountsOut(oneToken, [SELL_TOKEN, tokenOut]);
 		oneAmountOut = oneAmountOut[1];
-		const oneAmountOutFormated = parseFloat(formatUnits(oneAmountOut, buyTokenDecimals));		
+		const oneAmountOutFormated = parseFloat(formatUnits(oneAmountOut, tokenOutDecimals));		
 		const pricePerToken = 1 / oneAmountOutFormated;
+		
+		//remove from here/////////////
+
+		let amountsOut = (oneAmountOutFormated * slippedAmountFormated).toFixed(tokenOutDecimals);
+		amountsOut = parseUnits(amountsOut, tokenOutDecimals);
+
+		console.log({
+			oneToken: formatUnits(oneToken, tokenInDecimals),
+			slippedAmount: formatUnits(slippedAmount, tokenInDecimals),
+			oneAmountOut: formatUnits(oneAmountOut, tokenOutDecimals),
+			amountsOut: formatUnits(amountsOut, tokenOutDecimals)
+		});
+				
+		//to here//////////////////////
 		
 		if(maxPurchasePrice)
 		{
@@ -190,6 +200,7 @@ const startConnection = async () => {
 			{
 				CONTRACTS_TRADED[tokenOut].trading = false;
 				console.log(`--- ${code} too expensive: ${pricePerToken} per token ---`);
+
 				return;
 			}			
 		}
@@ -233,8 +244,8 @@ const startConnection = async () => {
 			{
 				if(receipt.status)
 				{
-					let tokenOutBalance = await rpcBuyContract.balanceOf(walletAddress);
-					let tokenInBalance = await rpcSellContract.balanceOf(walletAddress);
+					let tokenOutBalance = await rpcOutContract.balanceOf(walletAddress);
+					let tokenInBalance = await rpcInContract.balanceOf(walletAddress);
 					
 					if(tokenOutBalance && tokenInBalance)
 					{
@@ -284,10 +295,41 @@ const startConnection = async () => {
 				}
 			}
 		})
-		.forEach(trade => snipeContract(trade));		
+		.forEach(async (trade) => {
+			
+			const {address: tokenOut} = trade;
+			
+			if(!CONTRACTS_TRADED.hasOwnProperty(tokenOut))
+			{
+				let rpcOutContract = new ethers.Contract(
+					tokenOut, 
+					[
+						'function decimals() view returns (uint8)',
+						'function balanceOf(address owner) view returns (uint256)'
+					], 
+					rpcSigner
+				);	
+			
+				const tokenOutDecimals = (tokenOut === dummyAddress) 
+					? 18 
+					: await rpcOutContract.decimals();
+				
+				CONTRACTS_TRADED[tokenOut] = {
+					rpcOutContract, 
+					tokenOutDecimals,
+					failedOnce: false,
+					trading: false
+				};				
+			}
+			
+			snipeContract(trade);
+		});		
 	};
 	
-	setInterval(() => startSniper(), SNIPER_INTERVAL);
+	if(SNIPER_INTERVAL)
+	{
+		setInterval(() => startSniper(), SNIPER_INTERVAL);
+	}
 	
 	setInterval(async () => {
 		
@@ -321,7 +363,7 @@ const startConnection = async () => {
 			TARGET_CONTRACTS = data;
 		}
 		
-	}, 4000);
+	}, 2000);
 	
 	startSniper();
 };

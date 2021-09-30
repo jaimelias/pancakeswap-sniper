@@ -1,10 +1,10 @@
 [
 	{
-		"code": "THG",
-		"address": "0x9fd87aefe02441b123c3c32466cd9db4c578618f",
-		"saleAmount": 1981,		
-		"maxPurchasePrice": 0,
-		"slippage": 0.5,
+		"code": "ORION",
+		"address": "0x0000000000000000000000000000000000000000",
+		"saleAmount": 4995,	
+		"maxPurchasePrice": 0.20,
+		"slippage": 20,
 		"deadlineMinutes": 5
 	}
 ]
