@@ -180,20 +180,20 @@ const startConnection = async () => {
 		const oneAmountOutFormated = parseFloat(formatUnits(oneAmountOut, tokenOutDecimals));		
 		const pricePerToken = 1 / oneAmountOutFormated;
 		
-		//remove from here/////////////
-
 		let amountsOut = (oneAmountOutFormated * slippedAmountFormated).toFixed(tokenOutDecimals);
 		amountsOut = parseUnits(amountsOut, tokenOutDecimals);
+		const amountsOutFormated = parseFloat(formatUnits(amountsOut, tokenOutDecimals));
 
-		console.log({
-			oneToken: formatUnits(oneToken, tokenInDecimals),
-			slippedAmount: formatUnits(slippedAmount, tokenInDecimals),
-			oneAmountOut: formatUnits(oneAmountOut, tokenOutDecimals),
-			amountsOut: formatUnits(amountsOut, tokenOutDecimals)
-		});
-				
-		//to here//////////////////////
-		
+		if(!IS_PRODUCTION)
+		{
+			console.log({
+				oneToken: formatUnits(oneToken, tokenInDecimals),
+				slippedAmount: formatUnits(slippedAmount, tokenInDecimals),
+				oneAmountOut: formatUnits(oneAmountOut, tokenOutDecimals),
+				amountsOut: formatUnits(amountsOut, tokenOutDecimals)
+			});			
+		}
+
 		if(maxPurchasePrice)
 		{
 			if(pricePerToken > maxPurchasePrice)
@@ -205,7 +205,7 @@ const startConnection = async () => {
 			}			
 		}
 		
-		console.log(`+++ Buying ${code} at ${pricePerToken} +++`);
+		console.log(`+++ Buying ${amountsOutFormated} ${code} at ${pricePerToken} each +++`);
 		console.log(`-- Selling ${saleAmount} tokens --`);
 		
 		if(!IS_PRODUCTION)
