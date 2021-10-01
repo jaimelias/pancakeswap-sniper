@@ -6,9 +6,9 @@ import {JsonRpcProvider} from '@ethersproject/providers';
 import notifier from 'node-notifier';
 
 const {utils, BigNumber} = ethers;
-const {getAddress, formatUnits, parseUnits, hexlify, formatEther, parseEther} = utils;
+const {getAddress, formatUnits, parseUnits, hexlify} = utils;
 
-const IS_PRODUCTION = true;
+const IS_PRODUCTION = false;
 const addresses = getAddresses();
 let SELL_TOKEN = getAddress(addresses.BUSD);
 let TARGET_CONTRACTS = await getTargetContracts();
@@ -218,7 +218,7 @@ const startConnection = async () => {
 			
 			// Execute swap
 			const tx = await rpcRouter.swapExactTokensForTokens(
-				parseEther(saleAmount.toString()),
+				parseUnits(saleAmount.toString(), tokenOutDecimals),
 				amountsOut,
 				[SELL_TOKEN, tokenOut],
 				walletAddress,
@@ -245,12 +245,10 @@ const startConnection = async () => {
 				if(receipt.status)
 				{
 					let tokenOutBalance = await rpcOutContract.balanceOf(walletAddress);
-					let tokenInBalance = await rpcInContract.balanceOf(walletAddress);
 					
-					if(tokenOutBalance && tokenInBalance)
+					if(tokenOutBalance)
 					{
-						tokenOutBalance = formatEther(tokenOutBalance);
-						tokenInBalance = formatEther(tokenInBalance);
+						tokenOutBalance = formatUnits(tokenOutBalance, tokenOutDecimals);
 						console.log(`*** Transaction Successful: ${tx.hash} ***`);
 						console.log(`*** ${code} Balance ${tokenOutBalance} ***`);
 					}	
