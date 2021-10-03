@@ -1,9 +1,9 @@
 [
 	{
-		"code": "DUMMY",
-		"address": "0x0000000000000000000000000000000000000000",
-		"saleAmount": 4995,	
-		"maxPurchasePrice": 0.20,
+		"code": "UM",
+		"address": "0x831753DD7087CaC61aB5644b308642cc1c33Dc13",
+		"saleAmount": 0.027789354468548262,
+		"maxPurchasePrice": 0.000014,
 		"slippage": 20,
 		"deadlineMinutes": 5
 	}

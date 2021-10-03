@@ -10,12 +10,13 @@ const exchange = 'QUICKSWAP';
 const exchangeConfig = getExchange(exchange);
 const {CONFIG} = exchangeConfig;
 const {RPC_NETWORK, GAS, EXPLORER, DEX} = CONFIG;
-let {STABLE, WRAPPED} = CONFIG;
+let {STABLE, WRAPPED, ALT_1} = CONFIG;
 STABLE = exchangeConfig[STABLE];
 WRAPPED = exchangeConfig[WRAPPED];
+ALT_1 = exchangeConfig[ALT_1];
 const {utils, BigNumber} = ethers;
 const {getAddress, formatUnits, parseUnits} = utils;
-let SELL_TOKEN = getAddress(STABLE);
+let SELL_TOKEN = getAddress(ALT_1);
 let TARGET_CONTRACTS = await getTargetContracts();
 
 //CONFIGS
@@ -71,9 +72,11 @@ const startConnection = async () => {
 	
 	rpcFactory.on('PairCreated', async (token0, token1, pairAddress) => {
 		
+		console.log({token0, token1, pairAddress});
+		
 		token0 = getAddress(token0);
 		token1 = getAddress(token1);
-		
+				
 		let trade = TARGET_CONTRACTS
 		.find(o => o.address === token0) || TARGET_CONTRACTS.find(o => o.address === token1);
 
@@ -136,11 +139,24 @@ const startConnection = async () => {
 		
 		CONTRACTS_TRADED[tokenOut].trading = true;
 		
-		const pair = [
-			await rpcFactory.getPair(WRAPPED, tokenOut),
-			await rpcFactory.getPair(STABLE, tokenOut)
-		];
+		let pair = [];
 		
+		if(tokenOut !== WRAPPED)
+		{
+			pair.push(await rpcFactory.getPair(WRAPPED, tokenOut));
+		}
+		
+		if(tokenOut !== STABLE)
+		{
+			pair.push(await rpcFactory.getPair(STABLE, tokenOut));
+		}
+
+		
+		if(tokenOut !== ALT_1)
+		{
+			pair.push(await rpcFactory.getPair(ALT_1, tokenOut));
+		}	
+			
 		const hasLiquidity = val => val === dummyAddress;
 		
 		if(pair.every(hasLiquidity))
