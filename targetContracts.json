@@ -1,6 +1,6 @@
 [
 	{
-		"code": "ORION",
+		"code": "DUMMY",
 		"address": "0x0000000000000000000000000000000000000000",
 		"saleAmount": 4995,	
 		"maxPurchasePrice": 0.20,

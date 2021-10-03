@@ -5,10 +5,9 @@ import { ethers } from 'ethers';
 
 const {getAddress} = ethers.utils;
 
-export const openPancakeSwap = async ({inputCurrency, outputCurrency, slippage, exactAmount}) => await open(`https://pancakeswap.finance/swap?inputCurrency=${inputCurrency}&outputCurrency=${outputCurrency}&slippage=${slippage}&exactAmount=${exactAmount}`);
+export const openDex = async ({DEX, inputCurrency, outputCurrency, slippage, exactAmount}) => await open(`${DEX}/swap?inputCurrency=${inputCurrency}&outputCurrency=${outputCurrency}&slippage=${slippage}&exactAmount=${exactAmount}`);
 
-export const bscScanUrl = 'https://bscscan.com/tx/';
-export const openBscScan = async (hash) => await open(`${bscScanUrl}${hash}`);
+export const openExplorer = async ({hash, EXPLORER}) => await open(`${EXPLORER}/tx/${hash}`);
 
 export const getWhiteList = async (tsvList) => {
 	

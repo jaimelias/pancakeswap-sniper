@@ -1,16 +1,21 @@
 import {walletPrivateKey, walletAddress} from './secrets.js';
-import {getAddresses} from './config.js';
-import {openPancakeSwap, openBscScan, bscScanUrl, getTargetContracts} from './utilities.js';
+import {getExchange} from './config.js';
+import {openDex, openExplorer, getTargetContracts} from './utilities.js';
 import { ethers } from 'ethers';
 import {JsonRpcProvider} from '@ethersproject/providers';
 import notifier from 'node-notifier';
 
-const {utils, BigNumber} = ethers;
-const {getAddress, formatUnits, parseUnits, hexlify} = utils;
-
 const IS_PRODUCTION = false;
-const addresses = getAddresses();
-let SELL_TOKEN = getAddress(addresses.BUSD);
+const exchange = 'QUICKSWAP';
+const exchangeConfig = getExchange(exchange);
+const {CONFIG} = exchangeConfig;
+const {RPC_NETWORK, GAS, EXPLORER, DEX} = CONFIG;
+let {STABLE, WRAPPED} = CONFIG;
+STABLE = exchangeConfig[STABLE];
+WRAPPED = exchangeConfig[WRAPPED];
+const {utils, BigNumber} = ethers;
+const {getAddress, formatUnits, parseUnits} = utils;
+let SELL_TOKEN = getAddress(STABLE);
 let TARGET_CONTRACTS = await getTargetContracts();
 
 //CONFIGS
@@ -20,13 +25,13 @@ const dummyAddress = '0x0000000000000000000000000000000000000000';
 
 const startConnection = async () => {
 
-	const rpcProvider = new JsonRpcProvider('https://bsc-dataseed1.binance.org/');
+	const rpcProvider = new JsonRpcProvider(RPC_NETWORK);
 	const wallet = new ethers.Wallet(walletPrivateKey, rpcProvider);
 	const rpcSigner = wallet.connect(rpcProvider);
 	const SNIPER_INTERVAL = (IS_PRODUCTION) ? 1000 : 5000;
 
 	const rpcRouter = new ethers.Contract(
-		addresses.ROUTER,
+		exchangeConfig.ROUTER,
 		[
 			'function getAmountsOut(uint amountIn, address[] memory path) public view returns (uint[] memory amounts)',
 			'function swapExactTokensForTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external returns (uint[] memory amounts)'
@@ -35,7 +40,7 @@ const startConnection = async () => {
 	);
 
 	const rpcFactory = new ethers.Contract(
-		addresses.FACTORY,
+		exchangeConfig.FACTORY,
 		[
 			'function getPair(address tokenA, address tokenB) external view returns (address pair)',
 			'event PairCreated(address indexed token0, address indexed token1, address pair, uint)'
@@ -58,9 +63,9 @@ const startConnection = async () => {
 	if(IS_PRODUCTION)
 	{
 		await rpcInContract.approve(
-			addresses.ROUTER, 
+			exchangeConfig.ROUTER, 
 			parseUnits(APPROVE_MAX_TRANSACTIONS.toString(), tokenInDecimals), 
-			{gasLimit: 100000, gasPrice: 5e9}
+			GAS.APPROVE
 		);		
 	}
 	
@@ -82,7 +87,7 @@ const startConnection = async () => {
 		notifier.notify({
 			title: 'Contract Listed!',
 			message: tokenOut,
-			open: `https://bscscan.com/token/${tokenOut}`
+			open: `${EXPLORER}/token/${tokenOut}`
 		});
 		
 		snipeContract({
@@ -120,7 +125,8 @@ const startConnection = async () => {
 			inputCurrency: SELL_TOKEN, 
 			outputCurrency: tokenOut, 
 			slippage, 
-			exactAmount: saleAmount
+			exactAmount: saleAmount,
+			DEX
 		};
 		
 		if(!CONTRACTS_TRADED.hasOwnProperty(tokenOut))
@@ -131,8 +137,8 @@ const startConnection = async () => {
 		CONTRACTS_TRADED[tokenOut].trading = true;
 		
 		const pair = [
-			await rpcFactory.getPair(addresses.WBNB, tokenOut),
-			await rpcFactory.getPair(addresses.BUSD, tokenOut)
+			await rpcFactory.getPair(WRAPPED, tokenOut),
+			await rpcFactory.getPair(STABLE, tokenOut)
 		];
 		
 		const hasLiquidity = val => val === dummyAddress;
@@ -155,7 +161,7 @@ const startConnection = async () => {
 			if(!CONTRACTS_TRADED[tokenOut].failedOnce) 
 			{
 				CONTRACTS_TRADED[tokenOut].failedOnce = true;
-				await openPancakeSwap(pancakeSwapParams);
+				await openDex(pancakeSwapParams);
 			}
 			
 			return;
@@ -223,16 +229,13 @@ const startConnection = async () => {
 				[SELL_TOKEN, tokenOut],
 				walletAddress,
 				deadline,
-				{ 
-					gasLimit: hexlify(200000), 
-					gasPrice: parseUnits('10', 'gwei') 
-				}
+				GAS.SWAP
 			);
 			
 			console.log(`Tx-hash: ${tx.hash}`);
 			
 			const receipt = await tx.wait();
-			const tradeUrl = `https://bscscan.com/tx/${tx.hash}`;
+			const tradeUrl = `${EXPLORER}/tx/${tx.hash}`;
 			
 			notifier.notify({
 				title: 'Transaction Submited!',
@@ -256,24 +259,24 @@ const startConnection = async () => {
 				else
 				{
 					console.log(`Transaction Failed: ${tx.hash}`);
-					await openPancakeSwap(pancakeSwapParams);
+					await openDex(pancakeSwapParams);
 				}
 			}
 			
-			await openBscScan(tx.hash);
+			await openExplorer({hash: tx.hash, EXPLORER});
 		}
 		catch(e) {
 			
 			const {transactionHash} = e;
-			await openPancakeSwap(pancakeSwapParams);
+			await openDex(pancakeSwapParams);
 						
 			notifier.notify({
 				title: 'Transaction Failed!',
 				message: `Hash: ${transactionHash}`,
-				open: `${bscScanUrl}${transactionHash}`
+				open: `${EXPLORER}/tx/${transactionHash}`
 			});
 
-			await openBscScan(transactionHash);
+			await openExplorer({hash: transactionHash, EXPLORER});
 		}
 
 	};
