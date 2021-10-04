@@ -1,10 +1,10 @@
 [
 	{
-		"code": "UM",
-		"address": "0x3B1A0c9252ee7403093fF55b4a5886d49a3d837a",
-		"saleAmount": 0.027789354468548262,
-		"maxPurchasePrice": 0.00001466,
-		"slippage": 20,
+		"tokenIn": "0xe9e7cea3dedca5984780bafc599bd69add087d56",
+		"tokenInAmount": 100,
+		"tokenOut": "0x3ee2200efb3400fabb9aacf31297cbdd1d435d47",
+		"maxPurchasePrice": 0,
+		"slippage": 0.5,
 		"deadlineMinutes": 5
 	}
 ]

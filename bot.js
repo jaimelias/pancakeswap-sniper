@@ -5,24 +5,17 @@ import { ethers } from 'ethers';
 import {JsonRpcProvider} from '@ethersproject/providers';
 import notifier from 'node-notifier';
 
-const IS_PRODUCTION = true;
-const exchange = 'QUICKSWAP';
+const IS_PRODUCTION = false;
+const exchange = 'PANCAKESWAP';
 const exchangeConfig = getExchange(exchange);
 const {CONFIG} = exchangeConfig;
 const {RPC_NETWORK, GAS, EXPLORER, DEX} = CONFIG;
-let {STABLE, WRAPPED, ALT_1} = CONFIG;
-STABLE = exchangeConfig[STABLE];
-WRAPPED = exchangeConfig[WRAPPED];
-ALT_1 = exchangeConfig[ALT_1];
-const {utils, BigNumber} = ethers;
-const {getAddress, formatUnits, parseUnits} = utils;
-let SELL_TOKEN = getAddress(ALT_1);
+const {getAddress, formatUnits, parseUnits} = ethers.utils;
 let TARGET_CONTRACTS = await getTargetContracts();
 
 //CONFIGS
 let CONTRACTS_TRADED = {};
-const APPROVE_MAX_TRANSACTIONS = TARGET_CONTRACTS
-.reduce((accumulator, o) => accumulator + o.saleAmount, 0);
+let TRADES_APPROVED = {};
 
 const startConnection = async () => {
 
@@ -49,45 +42,21 @@ const startConnection = async () => {
 		rpcSigner
 	);
 	
-	let rpcInContract = new ethers.Contract(
-		SELL_TOKEN, 
-		[
-			'function approve(address _spender, uint256 _value) public returns (bool success)',
-			'function decimals() view returns (uint8)',
-			'function balanceOf(address owner) view returns (uint256)'
-		], 
-		rpcSigner
-	);
-	
-	const tokenInDecimals = await rpcInContract.decimals();
-	
-	if(IS_PRODUCTION)
-	{
-		await rpcInContract.approve(
-			exchangeConfig.ROUTER, 
-			parseUnits(APPROVE_MAX_TRANSACTIONS.toString(), tokenInDecimals), 
-			GAS.APPROVE
-		);		
-	}
-	
 	rpcFactory.on('PairCreated', async (token0, token1, pairAddress) => {
-		
-		console.log({token0, token1, pairAddress});
 		
 		token0 = getAddress(token0);
 		token1 = getAddress(token1);
-		
-		logNewPair({token0, token1, pairAddress});
 				
-		let trade = TARGET_CONTRACTS
-		.find(o => o.address === token0) || TARGET_CONTRACTS.find(o => o.address === token1);
+		let trade = TARGET_CONTRACTS.find(o => o.tokenOut === token0 && o.tokenIn === token1) || TARGET_CONTRACTS.find(o => o.tokenOut === token1 && o.tokenIn === token0);
 
 		//The quote currency is not WBNB
 		if(typeof trade === 'undefined') {
 			return;
 		}
 		
-		const {address: tokenOut} = trade;
+		logNewPair({token0, token1, pairAddress});
+		
+		const {tokenOut} = trade;
 				
 		notifier.notify({
 			title: 'Contract Listed!',
@@ -98,17 +67,16 @@ const startConnection = async () => {
 		snipeContract({
 			...trade,
 			pairAddress,
-			tokenIn: (token0 === trade.address) ? token1 : token0
+			tokenIn: (token0 === tokenOut) ? token1 : token0
 		});		
 	});
 
 	const snipeContract = async (trade) => {
 
 		let {
-			code, 
-			address: tokenOut,
+			tokenOut,
 			maxPurchasePrice,
-			saleAmount,
+			tokenInAmount,
 			tokenIn,
 			pairAddress,
 			slippage,
@@ -116,10 +84,10 @@ const startConnection = async () => {
 		} = trade;
 				
 		const pancakeSwapParams = {
-			inputCurrency: SELL_TOKEN, 
+			inputCurrency: tokenIn, 
 			outputCurrency: tokenOut, 
 			slippage, 
-			exactAmount: saleAmount,
+			exactAmount: tokenInAmount,
 			DEX
 		};
 		
@@ -130,38 +98,11 @@ const startConnection = async () => {
 		
 		CONTRACTS_TRADED[tokenOut].trading = true;
 		
-		let pair = [];
-		
-		if(tokenOut !== WRAPPED)
-		{
-			pair.push(await rpcFactory.getPair(WRAPPED, tokenOut));
-		}
-		
-		if(tokenOut !== STABLE)
-		{
-			pair.push(await rpcFactory.getPair(STABLE, tokenOut));
-		}
-
-		
-		if(tokenOut !== ALT_1)
-		{
-			pair.push(await rpcFactory.getPair(ALT_1, tokenOut));
-		}	
+		pairAddress = (!pairAddress) ?  await rpcFactory.getPair(tokenIn, tokenOut) : pairAddress;
 			
-		const hasLiquidity = val => val === dummyAddress;
-		
-		if(pair.every(hasLiquidity))
+		if(pairAddress === dummyAddress)
 		{
-			console.log(`--- No Liquidity in ${code}: ${tokenOut} ---`);
-			
-			if(tokenIn)
-			{
-				console.log(`--- tokenIn ${tokenIn} ---`);
-			}
-			if(pairAddress)
-			{
-				console.log(`--- pairAddress ${pairAddress} ---`);
-			}
+			console.log(`--- No Liquidity in ${tokenOut} ---`);
 
 			CONTRACTS_TRADED[tokenOut].trading = false;
 
@@ -178,17 +119,17 @@ const startConnection = async () => {
 	
 		//INSERT
 		
-		const {rpcOutContract, tokenOutDecimals} = CONTRACTS_TRADED[tokenOut];
+		const {rpcInContract, tokenInDecimals, rpcOutContract, tokenOutDecimals} = CONTRACTS_TRADED[tokenOut];
 		
 		let oneToken = (1).toFixed(tokenInDecimals).toString();
 		oneToken = parseUnits(oneToken, tokenInDecimals);
 		
-		let slippedAmount = saleAmount * ((100 - slippage) / 100);
+		let slippedAmount = tokenInAmount * ((100 - slippage) / 100);
 		slippedAmount = slippedAmount.toFixed(tokenInDecimals).toString();
 		slippedAmount = parseUnits(slippedAmount, tokenInDecimals);
 		const slippedAmountFormated = parseFloat(formatUnits(slippedAmount, tokenOutDecimals));
 		
-		let oneAmountOut = await rpcRouter.getAmountsOut(oneToken, [SELL_TOKEN, tokenOut]);
+		let oneAmountOut = await rpcRouter.getAmountsOut(oneToken, [tokenIn, tokenOut]);
 		oneAmountOut = oneAmountOut[1];
 		const oneAmountOutFormated = parseFloat(formatUnits(oneAmountOut, tokenOutDecimals));		
 		const pricePerToken = 1 / oneAmountOutFormated;
@@ -212,15 +153,15 @@ const startConnection = async () => {
 			if(pricePerToken > maxPurchasePrice)
 			{
 				CONTRACTS_TRADED[tokenOut].trading = false;
-				console.log(`--- ${code} too expensive: ${pricePerToken} per token ---`);
+				console.log(`--- ${tokenOut} too expensive: ${pricePerToken} per token ---`);
 
 				return;
 			}			
 		}
 		
-		console.log(`+++ Buying ${amountsOutFormated} ${code} at ${pricePerToken} each +++`);
-		console.log(`-- Selling ${saleAmount} tokens --`);
-		
+		console.log(`+++ Buying ${amountsOutFormated} ${tokenOut} at ${pricePerToken} each +++`);
+		console.log(`-- Selling ${tokenInAmount} ${tokenIn} --`);
+				
 		if(!IS_PRODUCTION)
 		{
 			return;
@@ -231,9 +172,9 @@ const startConnection = async () => {
 			
 			// Execute swap
 			const tx = await rpcRouter.swapExactTokensForTokens(
-				parseUnits(saleAmount.toString(), tokenOutDecimals),
+				parseUnits(tokenInAmount.toString(), tokenOutDecimals),
 				amountsOut,
-				[SELL_TOKEN, tokenOut],
+				[tokenIn, tokenOut],
 				walletAddress,
 				deadline,
 				GAS.SWAP
@@ -260,7 +201,7 @@ const startConnection = async () => {
 					{
 						tokenOutBalance = formatUnits(tokenOutBalance, tokenOutDecimals);
 						console.log(`*** Transaction Successful: ${tx.hash} ***`);
-						console.log(`*** ${code} Balance ${tokenOutBalance} ***`);
+						console.log(`*** ${tokenOut} Balance ${tokenOutBalance} ***`);
 					}	
 				}
 				else
@@ -291,13 +232,13 @@ const startConnection = async () => {
 	const startSniper = () => {
 		TARGET_CONTRACTS
 		.filter(o => {
-			if(!CONTRACTS_TRADED.hasOwnProperty(o.address))
+			if(!CONTRACTS_TRADED.hasOwnProperty(o.tokenOut))
 			{
 				return o;
 			}
 			else
 			{
-				if(!CONTRACTS_TRADED[o.address].trading)
+				if(!CONTRACTS_TRADED[o.tokenOut].trading)
 				{
 					return o;
 				}
@@ -305,10 +246,39 @@ const startConnection = async () => {
 		})
 		.forEach(async (trade) => {
 			
-			const {address: tokenOut} = trade;
+			const {tokenOut, tokenIn} = trade;
 			
 			if(!CONTRACTS_TRADED.hasOwnProperty(tokenOut))
 			{
+				
+				let rpcInContract = new ethers.Contract(
+					tokenIn, 
+					[
+						'function approve(address _spender, uint256 _value) public returns (bool success)',
+						'function decimals() view returns (uint8)',
+						'function balanceOf(address owner) view returns (uint256)'
+					], 
+					rpcSigner
+				);
+				
+				
+				const tokenInDecimals = (tokenOut === dummyAddress) ? 18 : await rpcInContract.decimals();
+				
+				const approveAmount = TARGET_CONTRACTS
+				.filter(o => o.tokenIn === tokenIn)
+				.reduce((accumulator, o) => accumulator + o.tokenInAmount, 0);
+
+				TRADES_APPROVED[tokenIn] = approveAmount;				
+				
+				if(IS_PRODUCTION)
+				{
+					await rpcInContract.approve(
+						exchangeConfig.ROUTER, 
+						parseUnits(approveAmount.toString(), tokenInDecimals), 
+						GAS.APPROVE
+					);		
+				}
+				
 				let rpcOutContract = new ethers.Contract(
 					tokenOut, 
 					[
@@ -318,11 +288,12 @@ const startConnection = async () => {
 					rpcSigner
 				);	
 			
-				const tokenOutDecimals = (tokenOut === dummyAddress) 
-					? 18 
-					: await rpcOutContract.decimals();
+				
+				const tokenOutDecimals = (tokenOut === dummyAddress) ? 18 : await rpcOutContract.decimals();
 				
 				CONTRACTS_TRADED[tokenOut] = {
+					rpcInContract,
+					tokenInDecimals,
 					rpcOutContract, 
 					tokenOutDecimals,
 					failedOnce: false,
@@ -345,24 +316,46 @@ const startConnection = async () => {
 		
 		if(data)
 		{
-			data.forEach(o => {
+			data.forEach(async (o) => {
+
+				const {tokenOut, tokenIn} = o;
 
 				let previousTargets = TARGET_CONTRACTS
-					.find(i => i.address === o.address);
+					.find(i => i.tokenOut === tokenOut);
 				
 				if(typeof previousTargets === 'object')
 				{
 					const updatedJson = JSON.stringify(o);
 					previousTargets = JSON.stringify(previousTargets);
 					
-					if(!CONTRACTS_TRADED.hasOwnProperty(o.address))
+					if(!CONTRACTS_TRADED.hasOwnProperty(tokenOut))
 					{
-						CONTRACTS_TRADED[o.address] = {};
+						CONTRACTS_TRADED[tokenOut] = {};
 					}
 					
 					if(previousTargets !== updatedJson)
 					{
-						CONTRACTS_TRADED[o.address].trading = false;
+						const approveAmount = data.filter(i => i.tokenIn === tokenIn)
+						.reduce((accumulator, i) => accumulator + i.tokenInAmount, 0);
+						
+
+						if(TRADES_APPROVED[tokenIn] !== approveAmount)
+						{
+							const {rpcInContract, tokenInDecimals} = CONTRACTS_TRADED[tokenOut];
+														
+							TRADES_APPROVED[tokenIn] = approveAmount;
+							
+							if(IS_PRODUCTION)
+							{
+								await rpcInContract.approve(
+									exchangeConfig.ROUTER, 
+									parseUnits(approveAmount.toString(), tokenInDecimals), 
+									GAS.APPROVE
+								);								
+							}
+						}
+						
+						CONTRACTS_TRADED[tokenOut].trading = false;
 					}					
 				}
 				

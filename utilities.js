@@ -19,7 +19,8 @@ export const getTargetContracts = async () => {
 		const data = JSON.parse(json);
 		
 		return data.map(o => {
-			o.address = getAddress(o.address);
+			o.tokenOut = getAddress(o.tokenOut);
+			o.tokenIn = getAddress(o.tokenIn);
 			o.slippage = (o.slippage < 0.5) ? 0.5 : o.slippage
 			return o;
 		});
