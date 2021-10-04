@@ -9,26 +9,6 @@ export const openDex = async ({DEX, inputCurrency, outputCurrency, slippage, exa
 
 export const openExplorer = async ({hash, EXPLORER}) => await open(`${EXPLORER}/tx/${hash}`);
 
-export const getWhiteList = async (tsvList) => {
-	
-	const response = await fetch(tsvList);
-	
-	if(response.ok)
-	{
-		const data = await response.text();
-		
-		if(data)
-		{
-			return data.split('\n')
-			.filter((v, i) => i > 0)
-			.map(v => v.split('\t')[2])
-			.filter(v => v);
-		}
-	}
-
-	return [];
-};
-
 const openTargetContracts = async () => fs.readFileSync('targetContracts.json', 'utf8');
 
 export const getTargetContracts = async () => {
@@ -46,5 +26,20 @@ export const getTargetContracts = async () => {
 	}
 	
 	return [];
+};
+
+export const dummyAddress = '0x0000000000000000000000000000000000000000';
+
+export const logNewPair = ({token0, token1, pairAddress}) => {
+console.log(`
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- New Pair --
+token0: ${token0}
+token1: ${token1}
+pairAddress: ${pairAddress}
++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+	`);				
 };
 

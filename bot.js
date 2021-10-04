@@ -1,11 +1,11 @@
 import {walletPrivateKey, walletAddress} from './secrets.js';
 import {getExchange} from './config.js';
-import {openDex, openExplorer, getTargetContracts} from './utilities.js';
+import {openDex, openExplorer, getTargetContracts, dummyAddress, logNewPair} from './utilities.js';
 import { ethers } from 'ethers';
 import {JsonRpcProvider} from '@ethersproject/providers';
 import notifier from 'node-notifier';
 
-const IS_PRODUCTION = false;
+const IS_PRODUCTION = true;
 const exchange = 'QUICKSWAP';
 const exchangeConfig = getExchange(exchange);
 const {CONFIG} = exchangeConfig;
@@ -21,8 +21,8 @@ let TARGET_CONTRACTS = await getTargetContracts();
 
 //CONFIGS
 let CONTRACTS_TRADED = {};
-const APPROVE_MAX_TRANSACTIONS = TARGET_CONTRACTS.reduce((accumulator, o) => accumulator + o.saleAmount, 0);
-const dummyAddress = '0x0000000000000000000000000000000000000000';
+const APPROVE_MAX_TRANSACTIONS = TARGET_CONTRACTS
+.reduce((accumulator, o) => accumulator + o.saleAmount, 0);
 
 const startConnection = async () => {
 
@@ -76,6 +76,8 @@ const startConnection = async () => {
 		
 		token0 = getAddress(token0);
 		token1 = getAddress(token1);
+		
+		logNewPair({token0, token1, pairAddress});
 				
 		let trade = TARGET_CONTRACTS
 		.find(o => o.address === token0) || TARGET_CONTRACTS.find(o => o.address === token1);
@@ -97,18 +99,7 @@ const startConnection = async () => {
 			...trade,
 			pairAddress,
 			tokenIn: (token0 === trade.address) ? token1 : token0
-		});
-		
-		console.log(`
-
-		+++++++++++++++++++++++++++++++++++++++++++++++++++++
-		-- New Pair --
-		token0: ${token0}
-		token1: ${token1}
-		pairAddress: ${pairAddress}
-		+++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-		`);			
+		});		
 	});
 
 	const snipeContract = async (trade) => {

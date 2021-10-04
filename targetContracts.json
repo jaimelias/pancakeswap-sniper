@@ -1,9 +1,9 @@
 [
 	{
 		"code": "UM",
-		"address": "0x831753DD7087CaC61aB5644b308642cc1c33Dc13",
+		"address": "0x3B1A0c9252ee7403093fF55b4a5886d49a3d837a",
 		"saleAmount": 0.027789354468548262,
-		"maxPurchasePrice": 0.000014,
+		"maxPurchasePrice": 0.00001466,
 		"slippage": 20,
 		"deadlineMinutes": 5
 	}
